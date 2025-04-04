@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Chat & Screenshare</title>
+  <style>
+    body { font-family: sans-serif; margin: 0; display: flex; height: 100vh; }
+    #chat, #screenshare { flex: 1; padding: 1rem; }
+    #messages { height: 80%; overflow-y: scroll; border: 1px solid #ccc; margin-bottom: 0.5rem; padding: 0.5rem; }
+    input[type="text"] { width: 80%; padding: 0.5rem; }
+    button { padding: 0.5rem; }
+    video { width: 100%; max-height: 80vh; border: 1px solid #000; }
+  </style>
+</head>
+<body>
+
+  <div id="chat">
+    <h2>Live Chat</h2>
+    <div id="messages"></div>
+    <input type="text" id="chatInput" placeholder="Type a message..." />
+    <button onclick="sendMessage()">Send</button>
+  </div>
+
+  <div id="screenshare">
+    <h2>Screenshare</h2>
+    <video id="screenVideo" autoplay playsinline></video>
+    <button onclick="startScreenShare()">Start Screenshare</button>
+  </div>
+
+  <script>
+    // --- Chat via WebSocket ---
+    const socket = new WebSocket('ws://localhost:3000'); // Update with your backend URL
+
+    const chatInput = document.getElementById('chatInput');
+    const messages = document.getElementById('messages');
+
+    socket.onmessage = (event) => {
+      const msg = document.createElement('div');
+      msg.textContent = event.data;
+      messages.appendChild(msg);
+      messages.scrollTop = messages.scrollHeight;
+    };
+
+    function sendMessage() {
+      const message = chatInput.value;
+      if (message) {
+        socket.send(message);
+        chatInput.value = '';
+      }
+    }
+
+    // --- Screenshare via WebRTC ---
+    let screenStream;
+
+    async function startScreenShare() {
+      try {
+        screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        document.getElementById('screenVideo').srcObject = screenStream;
+
+        // Send stream to peer via WebRTC — you'd need signaling and PeerConnection setup here
+        // Example:
+        // peerConnection.addTrack(screenStream.getVideoTracks()[0], screenStream);
+      } catch (err) {
+        alert('Error sharing screen: ' + err.message);
+      }
+    }
+  </script>
+
+</body>
+</html>
