@@ -1,40 +1,62 @@
-// server.js
+const express = require('express');
 const WebSocket = require('ws');
-const wss = new WebSocket.Server({ port: 3000 });
+const { v4: uuid } = require('uuid');
+const app = express();
+const server = require('http').createServer(app);
+const wss = new WebSocket.Server({ server });
 
-const rooms = {};
+const port = 3000;
+const streams = {}; // { shareCode: { sender: ws, viewers: [ws, ws...] } }
+
+app.use(express.static('public'));
+
+app.get('/share/:code', (req, res) => {
+  res.sendFile(__dirname + '/public/viewer.html');
+});
 
 wss.on('connection', (ws) => {
-  let joinedRoom = '';
+  ws.on('message', (msg) => {
+    const data = JSON.parse(msg);
 
-  ws.on('message', (message) => {
-    try {
-      const data = JSON.parse(message);
+    if (data.type === 'start') {
+      const code = uuid().slice(0, 6);
+      ws.shareCode = code;
+      streams[code] = { sender: ws, viewers: [] };
+      ws.send(JSON.stringify({ type: 'code', code }));
 
-      if (data.type === 'join') {
-        joinedRoom = data.room;
-        if (!rooms[joinedRoom]) rooms[joinedRoom] = [];
-        rooms[joinedRoom].push(ws);
+    } else if (data.type === 'view' && data.code) {
+      const stream = streams[data.code];
+      if (stream && stream.sender.readyState === WebSocket.OPEN) {
+        stream.viewers.push(ws);
+        stream.sender.send(JSON.stringify({ type: 'viewer-joined' }));
+        ws.shareCode = data.code;
       }
+    } else if (data.type === 'offer' || data.type === 'answer' || data.type === 'candidate') {
+      const code = ws.shareCode;
+      const stream = streams[code];
+      if (!stream) return;
 
-      if (data.type === 'chat' && joinedRoom) {
-        const msg = JSON.stringify({ type: 'chat', text: data.text });
-        rooms[joinedRoom].forEach(client => {
-          if (client.readyState === WebSocket.OPEN) {
-            client.send(msg);
-          }
+      if (data.type === 'offer') {
+        stream.viewers.forEach(v => v.send(JSON.stringify(data)));
+      } else if (data.type === 'answer') {
+        stream.sender.send(JSON.stringify(data));
+      } else if (data.type === 'candidate') {
+        (ws === stream.sender ? stream.viewers : [stream.sender]).forEach(peer => {
+          if (peer.readyState === WebSocket.OPEN) peer.send(JSON.stringify(data));
         });
       }
-    } catch (e) {
-      console.error('Failed to parse:', message);
     }
   });
 
   ws.on('close', () => {
-    if (joinedRoom && rooms[joinedRoom]) {
-      rooms[joinedRoom] = rooms[joinedRoom].filter(client => client !== ws);
+    const code = ws.shareCode;
+    if (code && streams[code]) {
+      streams[code].viewers.forEach(v => v.close());
+      delete streams[code];
     }
   });
 });
 
-console.log('WebSocket server running on ws://localhost:3000');
+server.listen(port, () => {
+  console.log(`Server running at http://localhost:${port}`);
+});
